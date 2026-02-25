@@ -1,0 +1,13 @@
+name = "cf-note"
+main = "src/index.js"
+compatibility_date = "2026-01-15"
+
+[[rules]]
+type = "Data"
+globs = ["**/*.ico"]
+fallthrough = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cf-note-db"
+database_id = "7a0246d1-a2a3-4ad8-89be-72d91351e44f"

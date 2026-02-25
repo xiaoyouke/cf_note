@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>云笔记 - 轻量在线笔记管理工具</title>
+  <meta name="description" content="基于 Cloudflare Workers 的轻量云笔记应用，支持笔记的创建、编辑、删除与管理，随时随地记录你的想法。">
+  <meta name="keywords" content="云笔记,在线笔记,笔记管理,Cloudflare Workers,轻量笔记,note">
+  <link rel="icon" href="/favicon.ico" type="image/x-icon">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f2f5; color: #333; min-height: 100vh; }
+
+    /* 登录页 */
+    .login-page { display: none; justify-content: center; align-items: center; min-height: 100vh; }
+    .login-page.show { display: flex; }
+    .login-box { background: #fff; border-radius: 8px; padding: 32px; width: 90%; max-width: 360px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
+    .login-box h2 { text-align: center; margin-bottom: 24px; font-size: 20px; color: #1a1a1a; }
+    .login-box label { display: block; font-size: 14px; color: #666; margin-bottom: 4px; }
+    .login-box input { width: 100%; padding: 10px 12px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px; margin-bottom: 16px; transition: border-color 0.2s; }
+    .login-box input:focus { outline: none; border-color: #1677ff; }
+    .login-box .btn-login { width: 100%; padding: 10px; background: #1677ff; color: #fff; border: none; border-radius: 6px; font-size: 15px; cursor: pointer; transition: background 0.2s; }
+    .login-box .btn-login:hover { background: #4096ff; }
+    .login-error { color: #ff4d4f; font-size: 13px; text-align: center; margin-bottom: 12px; display: none; }
+
+    /* 顶部导航 */
+    .navbar { background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.1); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
+    .navbar-brand { display: flex; align-items: center; gap: 8px; }
+    .navbar-brand svg { width: 28px; height: 28px; }
+    .navbar h1 { font-size: 20px; color: #1a1a1a; }
+    .nav-right { display: flex; align-items: center; gap: 12px; }
+    .nav-tabs { display: flex; gap: 8px; }
+    .nav-tabs button { padding: 6px 16px; border: 1px solid #d9d9d9; background: #fff; border-radius: 6px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
+    .nav-tabs button.active { background: #1677ff; color: #fff; border-color: #1677ff; }
+    .nav-tabs button:hover:not(.active) { border-color: #1677ff; color: #1677ff; }
+    .user-info { font-size: 13px; color: #666; }
+    .btn-logout { padding: 4px 12px; border: 1px solid #d9d9d9; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; color: #666; transition: all 0.2s; }
+    .btn-logout:hover { border-color: #ff4d4f; color: #ff4d4f; }
+
+    /* 主内容区 */
+    .container { max-width: 800px; margin: 24px auto; padding: 0 16px; }
+
+    /* 笔记列表 */
+    .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .section-header h2 { font-size: 18px; }
+    .btn-primary { padding: 8px 16px; background: #1677ff; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; transition: background 0.2s; }
+    .btn-primary:hover { background: #4096ff; }
+
+    .note-list { display: flex; flex-direction: column; gap: 12px; }
+    .note-card { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); transition: box-shadow 0.2s; }
+    .note-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+    .note-card h3 { font-size: 16px; margin-bottom: 8px; color: #1a1a1a; }
+    .note-card p { font-size: 14px; color: #666; line-height: 1.6; margin-bottom: 12px; white-space: pre-wrap; word-break: break-word; }
+    .note-meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #999; }
+    .note-actions { display: flex; gap: 8px; }
+    .note-actions button { padding: 4px 10px; border: 1px solid #d9d9d9; background: #fff; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all 0.2s; }
+    .note-actions .btn-edit:hover { border-color: #1677ff; color: #1677ff; }
+    .note-actions .btn-delete { color: #ff4d4f; border-color: #ff4d4f; }
+    .note-actions .btn-delete:hover { background: #ff4d4f; color: #fff; }
+
+    .empty-state { text-align: center; padding: 48px; color: #999; font-size: 14px; }
+
+    /* 用户列表 */
+    .user-table { width: 100%; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .user-table th, .user-table td { padding: 12px 16px; text-align: left; font-size: 14px; }
+    .user-table th { background: #fafafa; color: #666; font-weight: 500; border-bottom: 1px solid #f0f0f0; }
+    .user-table td { border-bottom: 1px solid #f0f0f0; }
+
+    /* 弹窗 */
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.45); z-index: 100; justify-content: center; align-items: center; }
+    .modal-overlay.show { display: flex; }
+    .modal { background: #fff; border-radius: 8px; padding: 24px; width: 90%; max-width: 520px; box-shadow: 0 6px 16px rgba(0,0,0,0.12); }
+    .modal h3 { font-size: 16px; margin-bottom: 20px; }
+    .modal label { display: block; font-size: 14px; color: #666; margin-bottom: 4px; }
+    .modal input, .modal textarea { width: 100%; padding: 8px 12px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px; margin-bottom: 16px; font-family: inherit; transition: border-color 0.2s; }
+    .modal input:focus, .modal textarea:focus { outline: none; border-color: #1677ff; }
+    .modal textarea { min-height: 160px; resize: vertical; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .modal-actions button { padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; border: 1px solid #d9d9d9; transition: all 0.2s; }
+    .btn-cancel { background: #fff; }
+    .btn-cancel:hover { border-color: #1677ff; color: #1677ff; }
+    .btn-save { background: #1677ff; color: #fff; border-color: #1677ff; }
+    .btn-save:hover { background: #4096ff; }
+  </style>
+</head>
+<body>
+
+  <!-- 登录页 -->
+  <div id="login-page" class="login-page">
+    <div class="login-box">
+      <h2>云笔记登录</h2>
+      <div id="login-error" class="login-error"></div>
+      <label>用户名</label>
+      <input type="text" id="login-username" placeholder="请输入用户名" value="admin">
+      <label>密码</label>
+      <input type="password" id="login-password" placeholder="请输入密码">
+      <button class="btn-login" onclick="doLogin()">登 录</button>
+    </div>
+  </div>
+
+  <!-- 主应用（登录后显示） -->
+  <div id="app" style="display:none;">
+    <nav class="navbar">
+      <div class="navbar-brand">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M4 4C4 2.89543 4.89543 2 6 2H14L20 8V20C20 21.1046 19.1046 22 18 22H6C4.89543 22 4 21.1046 4 20V4Z" fill="#1677ff" opacity="0.15"/>
+          <path d="M4 4C4 2.89543 4.89543 2 6 2H14L20 8V20C20 21.1046 19.1046 22 18 22H6C4.89543 22 4 21.1046 4 20V4Z" stroke="#1677ff" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M14 2V6C14 7.10457 14.8954 8 16 8H20" stroke="#1677ff" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M8 13H16M8 17H13" stroke="#1677ff" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="17.5" cy="17.5" r="4.5" fill="#fff" stroke="#1677ff" stroke-width="1.5"/>
+          <path d="M16.5 17.5L17.25 18.25L18.75 16.75" stroke="#1677ff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <h1>云笔记</h1>
+      </div>
+      <div class="nav-right">
+        <div class="nav-tabs">
+          <button class="active" onclick="switchTab('notes')">笔记</button>
+          <button onclick="switchTab('users')">用户</button>
+        </div>
+        <span class="user-info" id="current-user"></span>
+        <button class="btn-logout" onclick="doLogout()">退出</button>
+      </div>
+    </nav>
+
+    <div class="container">
+      <div id="notes-section">
+        <div class="section-header">
+          <h2>笔记列表</h2>
+          <button class="btn-primary" onclick="openCreateModal()">+ 新建笔记</button>
+        </div>
+        <div id="note-list" class="note-list">
+          <div class="empty-state">加载中...</div>
+        </div>
+      </div>
+
+      <div id="users-section" style="display:none;">
+        <div class="section-header">
+          <h2>用户列表</h2>
+        </div>
+        <table class="user-table">
+          <thead>
+            <tr><th>ID</th><th>用户名</th><th>创建时间</th></tr>
+          </thead>
+          <tbody id="user-list"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新建/编辑弹窗 -->
+  <div id="note-modal" class="modal-overlay">
+    <div class="modal">
+      <h3 id="modal-title">新建笔记</h3>
+      <input type="hidden" id="note-id">
+      <label>标题</label>
+      <input type="text" id="note-title-input" placeholder="请输入标题">
+      <label>内容</label>
+      <textarea id="note-content-input" placeholder="请输入内容"></textarea>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal()">取消</button>
+        <button class="btn-save" onclick="saveNote()">保存</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const API_BASE = '';
+
+  // --- 登录/登出 ---
+  async function checkAuth() {
+    try {
+      const res = await fetch(API_BASE + '/api/me');
+      if (res.ok) {
+        const user = await res.json();
+        showApp(user);
+        return;
+      }
+    } catch (e) {}
+    showLogin();
+  }
+
+  function showLogin() {
+    document.getElementById('login-page').classList.add('show');
+    document.getElementById('app').style.display = 'none';
+  }
+
+  function showApp(user) {
+    document.getElementById('login-page').classList.remove('show');
+    document.getElementById('app').style.display = '';
+    document.getElementById('current-user').textContent = user.username;
+    loadNotes();
+  }
+
+  async function doLogin() {
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value.trim();
+    const errorEl = document.getElementById('login-error');
+    errorEl.style.display = 'none';
+
+    if (!username || !password) {
+      errorEl.textContent = '请输入用户名和密码';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    try {
+      const res = await fetch(API_BASE + '/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errorEl.textContent = data.error || '登录失败';
+        errorEl.style.display = 'block';
+        return;
+      }
+      showApp(data);
+    } catch (e) {
+      errorEl.textContent = '网络错误，请重试';
+      errorEl.style.display = 'block';
+    }
+  }
+
+  async function doLogout() {
+    try {
+      await fetch(API_BASE + '/api/logout', { method: 'POST' });
+    } catch (e) {}
+    showLogin();
+    document.getElementById('login-password').value = '';
+  }
+
+  // 密码框回车登录
+  document.getElementById('login-password').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') doLogin();
+  });
+
+  // --- Tab 切换 ---
+  function switchTab(tab) {
+    document.querySelectorAll('.nav-tabs button').forEach(btn => btn.classList.remove('active'));
+    if (tab === 'notes') {
+      document.querySelector('.nav-tabs button:nth-child(1)').classList.add('active');
+      document.getElementById('notes-section').style.display = '';
+      document.getElementById('users-section').style.display = 'none';
+    } else {
+      document.querySelector('.nav-tabs button:nth-child(2)').classList.add('active');
+      document.getElementById('notes-section').style.display = 'none';
+      document.getElementById('users-section').style.display = '';
+      loadUsers();
+    }
+  }
+
+  // --- 笔记 CRUD ---
+  async function loadNotes() {
+    try {
+      const res = await fetch(API_BASE + '/api/notes');
+      if (res.status === 401) { showLogin(); return; }
+      const notes = await res.json();
+      renderNotes(notes);
+    } catch (e) {
+      document.getElementById('note-list').innerHTML = '<div class="empty-state">加载失败，请刷新重试</div>';
+    }
+  }
+
+  function renderNotes(notes) {
+    const container = document.getElementById('note-list');
+    if (!notes.length) {
+      container.innerHTML = '<div class="empty-state">暂无笔记，点击右上角新建</div>';
+      return;
+    }
+    container.innerHTML = notes.map(note => `
+      <div class="note-card">
+        <h3>${escapeHtml(note.title)}</h3>
+        <p>${escapeHtml(note.content)}</p>
+        <div class="note-meta">
+          <span>${note.username} · ${formatTime(note.updated_at)}</span>
+          <div class="note-actions">
+            <button class="btn-edit" onclick="openEditModal(${note.id}, '${escapeAttr(note.title)}', '${escapeAttr(note.content)}')">编辑</button>
+            <button class="btn-delete" onclick="deleteNote(${note.id})">删除</button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function openCreateModal() {
+    document.getElementById('modal-title').textContent = '新建笔记';
+    document.getElementById('note-id').value = '';
+    document.getElementById('note-title-input').value = '';
+    document.getElementById('note-content-input').value = '';
+    document.getElementById('note-modal').classList.add('show');
+  }
+
+  function openEditModal(id, title, content) {
+    document.getElementById('modal-title').textContent = '编辑笔记';
+    document.getElementById('note-id').value = id;
+    document.getElementById('note-title-input').value = title;
+    document.getElementById('note-content-input').value = content;
+    document.getElementById('note-modal').classList.add('show');
+  }
+
+  function closeModal() {
+    document.getElementById('note-modal').classList.remove('show');
+  }
+
+  async function saveNote() {
+    const id = document.getElementById('note-id').value;
+    const title = document.getElementById('note-title-input').value.trim();
+    const content = document.getElementById('note-content-input').value.trim();
+
+    if (!title) { alert('请输入标题'); return; }
+
+    try {
+      if (id) {
+        await fetch(API_BASE + '/api/notes/' + id, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, content }),
+        });
+      } else {
+        await fetch(API_BASE + '/api/notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, content }),
+        });
+      }
+      closeModal();
+      loadNotes();
+    } catch (e) {
+      alert('保存失败: ' + e.message);
+    }
+  }
+
+  async function deleteNote(id) {
+    if (!confirm('确定要删除这条笔记吗？')) return;
+    try {
+      await fetch(API_BASE + '/api/notes/' + id, { method: 'DELETE' });
+      loadNotes();
+    } catch (e) {
+      alert('删除失败: ' + e.message);
+    }
+  }
+
+  // --- 用户列表 ---
+  async function loadUsers() {
+    try {
+      const res = await fetch(API_BASE + '/api/users');
+      if (res.status === 401) { showLogin(); return; }
+      const users = await res.json();
+      document.getElementById('user-list').innerHTML = users.map(u => `
+        <tr><td>${u.id}</td><td>${escapeHtml(u.username)}</td><td>${formatTime(u.created_at)}</td></tr>
+      `).join('');
+    } catch (e) {
+      document.getElementById('user-list').innerHTML = '<tr><td colspan="3">加载失败</td></tr>';
+    }
+  }
+
+  // --- 工具函数 ---
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+  }
+
+  function escapeAttr(str) {
+    return (str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
+  }
+
+  function formatTime(t) {
+    if (!t) return '';
+    return t.replace('T', ' ').substring(0, 19);
+  }
+
+  // 初始化：检查登录状态
+  checkAuth();
+</script>
+</body>
+</html>
