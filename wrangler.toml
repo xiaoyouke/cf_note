@@ -10,4 +10,4 @@ fallthrough = false
 [[d1_databases]]
 binding = "DB"
 database_name = "cf-note-db"
-database_id = "a4745e99-ad70-4179-889b-894e2aa812ed"
+database_id = "99c13bea-c0de-4943-97c8-553e14de4032"
